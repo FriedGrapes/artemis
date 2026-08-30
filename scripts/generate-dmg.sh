@@ -42,7 +42,11 @@ mkdir $INSTALLER_FOLDER
 
 echo Configuring the project
 pushd $BUILD_FOLDER
-qmake $SOURCE_ROOT/artemis.pro QMAKE_APPLE_DEVICE_ARCHS="x86_64 arm64" || fail "Qmake failed!"
+# The extra flags work around Qt 6.8 vs current Xcode incompatibilities:
+# qyieldcpu.h's __yield() diagnostic and the AGL framework the SDK removed
+qmake $SOURCE_ROOT/artemis.pro QMAKE_APPLE_DEVICE_ARCHS="x86_64 arm64" \
+    "QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration" \
+    "QMAKE_LIBS_OPENGL=-framework OpenGL" || fail "Qmake failed!"
 popd
 
 echo Compiling Artemis in $BUILD_CONFIG configuration
