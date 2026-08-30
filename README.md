@@ -1,5 +1,10 @@
 # Artemis Qt
 
+> [!NOTE]
+> **This is a personal fork of [Artemis Qt](https://github.com/wjbeckett/artemis), maintained for my own use and experiments.**
+> It is not a supported project: issues and pull requests here exist for my personal development workflow, and releases are built for my own machines.
+> If you are looking for Artemis itself, please use the [upstream project](https://github.com/wjbeckett/artemis) and report issues there.
+
 [Artemis Qt](https://github.com/wjbeckett/artemis) is an enhanced cross-platform client for NVIDIA GameStream and [Apollo](https://github.com/ClassicOldSong/Apollo)/[Sunshine](https://github.com/LizardByte/Sunshine) servers. It brings the advanced features from [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) to desktop platforms.
 
 ## 🙏 Attribution

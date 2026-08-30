@@ -1,1 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
+contact_links:
+  - name: Artemis Qt (upstream project)
+    url: https://github.com/wjbeckett/artemis/issues
+    about: This repository is a personal fork and is not supported. If you need help with Artemis, please use the upstream project.
