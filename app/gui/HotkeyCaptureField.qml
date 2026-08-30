@@ -140,15 +140,18 @@ TextField {
 
         var modBit = modifierBitForKey(event.key)
         if (modBit !== 0) {
-            heldModifierMask |= modBit
+            // normalizeEventModifiers() maps Qt's view of the modifiers to
+            // the physical keys (they differ on macOS)
+            heldModifierMask |= HotkeyManager.normalizeEventModifiers(modBit)
             trackKey(event.key)
             refresh()
         }
         else {
             // Take the modifier state from the event itself so modifiers
             // that were already held before capture started still count
-            var mods = event.modifiers & (Qt.ControlModifier | Qt.AltModifier |
-                                          Qt.ShiftModifier | Qt.MetaModifier)
+            var mods = HotkeyManager.normalizeEventModifiers(
+                        event.modifiers & (Qt.ControlModifier | Qt.AltModifier |
+                                           Qt.ShiftModifier | Qt.MetaModifier))
             if (mods !== 0 && HotkeyManager.isBindableKey(event.key)) {
                 // Snapshot the combo: modifiers held right now plus this key
                 pendingKey = event.key
@@ -174,7 +177,7 @@ TextField {
 
         var modBit = modifierBitForKey(event.key)
         if (modBit !== 0) {
-            heldModifierMask &= ~modBit
+            heldModifierMask &= ~HotkeyManager.normalizeEventModifiers(modBit)
         }
         untrackKey(event.key)
 

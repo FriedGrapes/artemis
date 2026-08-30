@@ -65,6 +65,13 @@ public:
     // combo (not a modifier, not Enter, and mappable to an SDL keycode)
     Q_INVOKABLE bool isBindableKey(int qtKey);
 
+    // Converts modifiers as reported by Qt key events into the physical
+    // modifier keys they represent. On macOS, Qt swaps Command and Control
+    // but SDL (which matches hotkeys at stream time) does not, so captured
+    // modifiers must be unswapped before storage or display. A no-op on
+    // other platforms.
+    Q_INVOKABLE int normalizeEventModifiers(int qtModifiers);
+
     // Binds a combo to an action, unbinding it from any other action first
     Q_INVOKABLE void setHotkey(int action, int qtModifiers, int qtKey);
 

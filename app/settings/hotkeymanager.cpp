@@ -353,6 +353,26 @@ bool HotkeyManager::isBindableKey(int qtKey)
     }
 }
 
+int HotkeyManager::normalizeEventModifiers(int qtModifiers)
+{
+#if defined(Q_OS_DARWIN)
+    // Qt swaps Command and Control on macOS (Command arrives as
+    // ControlModifier and Control as MetaModifier), but SDL reports the
+    // physical keys at stream time. Unswap here so stored bindings always
+    // refer to the physical keys and match what SDL sees.
+    int mods = qtModifiers & ~(Qt::ControlModifier | Qt::MetaModifier);
+    if (qtModifiers & Qt::ControlModifier) {
+        mods |= Qt::MetaModifier;
+    }
+    if (qtModifiers & Qt::MetaModifier) {
+        mods |= Qt::ControlModifier;
+    }
+    return mods;
+#else
+    return qtModifiers;
+#endif
+}
+
 int HotkeyManager::qtModsToHotkeyModMask(int qtModifiers)
 {
     int mask = 0;
