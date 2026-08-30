@@ -197,6 +197,12 @@ jobs:
           target: 'desktop'
           modules: 'qtmultimedia'
 
+      - name: Strip AGL from Qt prl files (framework removed from current macOS SDK)
+        if: matrix.os == 'macos-latest'
+        run: |
+          find "$Qt6_DIR/lib" -name '*.prl' -print0 | xargs -0 sed -i '' 's/-framework AGL//g'
+          grep -rl 'framework AGL' "$Qt6_DIR/lib" --include='*.prl' || echo "All AGL references removed"
+
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: |
@@ -813,7 +819,12 @@ jobs:
         host: 'mac'
         target: 'desktop'
         modules: 'qtmultimedia'
-        
+
+    - name: Strip AGL from Qt prl files (framework removed from current macOS SDK)
+      run: |
+        find "$Qt6_DIR/lib" -name '*.prl' -print0 | xargs -0 sed -i '' 's/-framework AGL//g'
+        grep -rl 'framework AGL' "$Qt6_DIR/lib" --include='*.prl' || echo "All AGL references removed"
+
     - name: Set macOS deployment target for compatibility
       run: |
         echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> $GITHUB_ENV
