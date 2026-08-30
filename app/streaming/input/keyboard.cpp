@@ -1,5 +1,7 @@
 #include "streaming/session.h"
 
+#include "settings/hotkeymanager.h"
+
 #include <Limelight.h>
 #include "SDL_compat.h"
 
@@ -157,11 +159,16 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
 
     case KeyComboToggleQuickMenu:
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Detected quick menu toggle combo");
-        
+
         // Access the QuickMenuManager through the Session
         if (Session::get()) {
             Session::get()->toggleQuickMenu();
         }
+        break;
+
+    case KeyComboIgnore:
+        // Handled inline in handleKeyEvent() since it needs the key event
+        // context to suppress the matching key up event too
         break;
 
     default:
@@ -181,33 +188,77 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
         return;
     }
 
-    // Check for our special key combos
-    if ((event->state == SDL_PRESSED) &&
-            (event->keysym.mod & KMOD_CTRL) &&
-            (event->keysym.mod & KMOD_ALT) &&
-            (event->keysym.mod & KMOD_SHIFT)) {
-        // First we test the SDLK combos for matches,
-        // that way we ensure that latin keyboard users
-        // can match to the key they see on their keyboards.
-        // If nothing matches that, we'll then go on to
-        // checking scancodes so non-latin keyboard users
-        // can have working hotkeys (though possibly in
-        // odd positions). We must do all SDLK tests before
-        // any scancode tests to avoid issues in cases
-        // where the SDLK for one shortcut collides with
-        // the scancode of another.
+    // If this key's press was suppressed by the ignore hotkey, suppress
+    // its release too so the host never sees the key at all.
+    if (event->state == SDL_RELEASED &&
+            m_IgnoredScancodesDown.remove(event->keysym.scancode)) {
+        return;
+    }
 
-        for (int i = 0; i < KeyComboMax; i++) {
-            if (m_SpecialKeyCombos[i].enabled && event->keysym.sym == m_SpecialKeyCombos[i].keyCode) {
-                performSpecialKeyCombo(m_SpecialKeyCombos[i].keyCombo);
-                return;
-            }
+    // Check for our special key combos
+    if (event->state == SDL_PRESSED) {
+        // Compute the currently active modifier set. Left/right variants
+        // are collapsed together and lock states (Num/Caps) are excluded.
+        int activeMods = 0;
+        if (event->keysym.mod & KMOD_CTRL) {
+            activeMods |= HotkeyManager::HkModCtrl;
+        }
+        if (event->keysym.mod & KMOD_ALT) {
+            activeMods |= HotkeyManager::HkModAlt;
+        }
+        if (event->keysym.mod & KMOD_SHIFT) {
+            activeMods |= HotkeyManager::HkModShift;
+        }
+        if (event->keysym.mod & KMOD_GUI) {
+            activeMods |= HotkeyManager::HkModGui;
         }
 
-        for (int i = 0; i < KeyComboMax; i++) {
-            if (m_SpecialKeyCombos[i].enabled && event->keysym.scancode == m_SpecialKeyCombos[i].scanCode) {
-                performSpecialKeyCombo(m_SpecialKeyCombos[i].keyCombo);
+        // Valid combos always include at least one modifier, and a combo
+        // only matches when exactly its bound modifiers are held.
+        if (activeMods != 0) {
+            // The ignore hotkey takes precedence over all other combos to
+            // guarantee its key is never forwarded to the host.
+            const auto& ignoreCombo = m_SpecialKeyCombos[KeyComboIgnore];
+            if (ignoreCombo.enabled && ignoreCombo.modMask == activeMods &&
+                    (event->keysym.sym == ignoreCombo.keyCode ||
+                     (ignoreCombo.scanCode != SDL_SCANCODE_UNKNOWN &&
+                      event->keysym.scancode == ignoreCombo.scanCode))) {
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                            "Detected ignore hotkey - withholding key from host");
+                m_IgnoredScancodesDown.insert(event->keysym.scancode);
                 return;
+            }
+
+            // First we test the SDLK combos for matches,
+            // that way we ensure that latin keyboard users
+            // can match to the key they see on their keyboards.
+            // If nothing matches that, we'll then go on to
+            // checking scancodes so non-latin keyboard users
+            // can have working hotkeys (though possibly in
+            // odd positions). We must do all SDLK tests before
+            // any scancode tests to avoid issues in cases
+            // where the SDLK for one shortcut collides with
+            // the scancode of another.
+
+            for (int i = 0; i < KeyComboMax; i++) {
+                if (i != KeyComboIgnore &&
+                        m_SpecialKeyCombos[i].enabled &&
+                        m_SpecialKeyCombos[i].modMask == activeMods &&
+                        event->keysym.sym == m_SpecialKeyCombos[i].keyCode) {
+                    performSpecialKeyCombo(m_SpecialKeyCombos[i].keyCombo);
+                    return;
+                }
+            }
+
+            for (int i = 0; i < KeyComboMax; i++) {
+                if (i != KeyComboIgnore &&
+                        m_SpecialKeyCombos[i].enabled &&
+                        m_SpecialKeyCombos[i].modMask == activeMods &&
+                        m_SpecialKeyCombos[i].scanCode != SDL_SCANCODE_UNKNOWN &&
+                        event->keysym.scancode == m_SpecialKeyCombos[i].scanCode) {
+                    performSpecialKeyCombo(m_SpecialKeyCombos[i].keyCombo);
+                    return;
+                }
             }
         }
     }

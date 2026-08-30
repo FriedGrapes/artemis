@@ -1,6 +1,7 @@
 #include <Limelight.h>
 #include "SDL_compat.h"
 #include "streaming/session.h"
+#include "settings/hotkeymanager.h"
 #include "settings/mappingmanager.h"
 #include "path.h"
 #include "utils.h"
@@ -65,63 +66,37 @@ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, i
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
 
-    // Populate special key combo configuration
-    m_SpecialKeyCombos[KeyComboQuit].keyCombo = KeyComboQuit;
-    m_SpecialKeyCombos[KeyComboQuit].keyCode = SDLK_q;
-    m_SpecialKeyCombos[KeyComboQuit].scanCode = SDL_SCANCODE_Q;
-    m_SpecialKeyCombos[KeyComboQuit].enabled = true;
+    // Populate special key combo configuration from the user's saved
+    // hotkey bindings (or the defaults for unmodified actions)
+    static_assert((int)HotkeyManager::ActionCount == (int)KeyComboMax,
+                  "HotkeyManager::HotkeyAction must match SdlInputHandler::KeyCombo");
+    for (int i = 0; i < KeyComboMax; i++) {
+        m_SpecialKeyCombos[i].keyCombo = (KeyCombo)i;
 
-    m_SpecialKeyCombos[KeyComboUngrabInput].keyCombo = KeyComboUngrabInput;
-    m_SpecialKeyCombos[KeyComboUngrabInput].keyCode = SDLK_z;
-    m_SpecialKeyCombos[KeyComboUngrabInput].scanCode = SDL_SCANCODE_Z;
-    m_SpecialKeyCombos[KeyComboUngrabInput].enabled = QGuiApplication::platformName() != "eglfs";
+        int qtMods, qtKey;
+        if (HotkeyManager::getBinding(i, qtMods, qtKey)) {
+            m_SpecialKeyCombos[i].modMask = HotkeyManager::qtModsToHotkeyModMask(qtMods);
+            m_SpecialKeyCombos[i].keyCode = HotkeyManager::qtKeyToSdlKeycode(qtKey, qtMods);
+            m_SpecialKeyCombos[i].scanCode =
+                    (SDL_Scancode)HotkeyManager::sdlKeycodeToDefaultScancode(m_SpecialKeyCombos[i].keyCode);
+            m_SpecialKeyCombos[i].enabled = m_SpecialKeyCombos[i].keyCode != SDLK_UNKNOWN &&
+                                            m_SpecialKeyCombos[i].modMask != 0;
+        }
+        else {
+            // Unbound
+            m_SpecialKeyCombos[i].modMask = 0;
+            m_SpecialKeyCombos[i].keyCode = SDLK_UNKNOWN;
+            m_SpecialKeyCombos[i].scanCode = SDL_SCANCODE_UNKNOWN;
+            m_SpecialKeyCombos[i].enabled = false;
+        }
+    }
 
-    m_SpecialKeyCombos[KeyComboToggleFullScreen].keyCombo = KeyComboToggleFullScreen;
-    m_SpecialKeyCombos[KeyComboToggleFullScreen].keyCode = SDLK_x;
-    m_SpecialKeyCombos[KeyComboToggleFullScreen].scanCode = SDL_SCANCODE_X;
-    m_SpecialKeyCombos[KeyComboToggleFullScreen].enabled = QGuiApplication::platformName() != "eglfs";
-
-    m_SpecialKeyCombos[KeyComboToggleStatsOverlay].keyCombo = KeyComboToggleStatsOverlay;
-    m_SpecialKeyCombos[KeyComboToggleStatsOverlay].keyCode = SDLK_s;
-    m_SpecialKeyCombos[KeyComboToggleStatsOverlay].scanCode = SDL_SCANCODE_S;
-    m_SpecialKeyCombos[KeyComboToggleStatsOverlay].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboToggleMouseMode].keyCombo = KeyComboToggleMouseMode;
-    m_SpecialKeyCombos[KeyComboToggleMouseMode].keyCode = SDLK_m;
-    m_SpecialKeyCombos[KeyComboToggleMouseMode].scanCode = SDL_SCANCODE_M;
-    m_SpecialKeyCombos[KeyComboToggleMouseMode].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboToggleCursorHide].keyCombo = KeyComboToggleCursorHide;
-    m_SpecialKeyCombos[KeyComboToggleCursorHide].keyCode = SDLK_c;
-    m_SpecialKeyCombos[KeyComboToggleCursorHide].scanCode = SDL_SCANCODE_C;
-    m_SpecialKeyCombos[KeyComboToggleCursorHide].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboToggleMinimize].keyCombo = KeyComboToggleMinimize;
-    m_SpecialKeyCombos[KeyComboToggleMinimize].keyCode = SDLK_d;
-    m_SpecialKeyCombos[KeyComboToggleMinimize].scanCode = SDL_SCANCODE_D;
-    m_SpecialKeyCombos[KeyComboToggleMinimize].enabled = QGuiApplication::platformName() != "eglfs";
-
-    m_SpecialKeyCombos[KeyComboPasteText].keyCombo = KeyComboPasteText;
-    m_SpecialKeyCombos[KeyComboPasteText].keyCode = SDLK_v;
-    m_SpecialKeyCombos[KeyComboPasteText].scanCode = SDL_SCANCODE_V;
-    m_SpecialKeyCombos[KeyComboPasteText].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboTogglePointerRegionLock].keyCombo = KeyComboTogglePointerRegionLock;
-    m_SpecialKeyCombos[KeyComboTogglePointerRegionLock].keyCode = SDLK_l;
-    m_SpecialKeyCombos[KeyComboTogglePointerRegionLock].scanCode = SDL_SCANCODE_L;
-    m_SpecialKeyCombos[KeyComboTogglePointerRegionLock].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboQuitAndExit].keyCombo = KeyComboQuitAndExit;
-    m_SpecialKeyCombos[KeyComboQuitAndExit].keyCode = SDLK_e;
-    m_SpecialKeyCombos[KeyComboQuitAndExit].scanCode = SDL_SCANCODE_E;
-    m_SpecialKeyCombos[KeyComboQuitAndExit].enabled = true;
-
-    // KeyComboToggleServerCommands removed - now handled through QuickMenu
-
-    m_SpecialKeyCombos[KeyComboToggleQuickMenu].keyCombo = KeyComboToggleQuickMenu;
-    m_SpecialKeyCombos[KeyComboToggleQuickMenu].keyCode = SDLK_BACKSLASH;
-    m_SpecialKeyCombos[KeyComboToggleQuickMenu].scanCode = SDL_SCANCODE_BACKSLASH;
-    m_SpecialKeyCombos[KeyComboToggleQuickMenu].enabled = true;
+    // These actions don't make sense when running without a desktop environment
+    if (QGuiApplication::platformName() == "eglfs") {
+        m_SpecialKeyCombos[KeyComboUngrabInput].enabled = false;
+        m_SpecialKeyCombos[KeyComboToggleFullScreen].enabled = false;
+        m_SpecialKeyCombos[KeyComboToggleMinimize].enabled = false;
+    }
 
     m_OldIgnoreDevices = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES);
     m_OldIgnoreDevicesExcept = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT);
@@ -260,6 +235,11 @@ void SdlInputHandler::setWindow(SDL_Window *window)
 
 void SdlInputHandler::raiseAllKeys()
 {
+    // Any key up events that we were withholding from the host are moot
+    // now, since we may never receive them (e.g. on focus loss). Clear
+    // the set so future key up events aren't incorrectly suppressed.
+    m_IgnoredScancodesDown.clear();
+
     if (m_KeysDown.isEmpty()) {
         return;
     }

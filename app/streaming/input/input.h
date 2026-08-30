@@ -166,6 +166,7 @@ private:
         KeyComboTogglePointerRegionLock,
         KeyComboQuitAndExit,
         KeyComboToggleQuickMenu,
+        KeyComboIgnore,
         KeyComboMax
     };
 
@@ -227,8 +228,13 @@ private:
         KeyCombo keyCombo;
         SDL_Keycode keyCode;
         SDL_Scancode scanCode;
+        int modMask;
         bool enabled;
     } m_SpecialKeyCombos[KeyComboMax];
+
+    // Scancodes suppressed by the ignore hotkey whose key up events
+    // must also be withheld from the host
+    QSet<int> m_IgnoredScancodesDown;
 
     SDL_TouchFingerEvent m_LastTouchDownEvent;
     SDL_TouchFingerEvent m_LastTouchUpEvent;

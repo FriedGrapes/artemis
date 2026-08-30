@@ -16,6 +16,7 @@ enum KeyCombo {
     KeyComboTogglePointerRegionLock,
     KeyComboQuitAndExit,
     KeyComboToggleQuickMenu,
+    KeyComboIgnore,
     KeyComboMax
 };
 
