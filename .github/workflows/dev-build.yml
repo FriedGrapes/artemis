@@ -212,7 +212,14 @@ jobs:
       - name: Build (qmake + make)
         run: |
           export PATH="$Qt6_DIR/bin:$PATH"
-          qmake6 artemis.pro CONFIG+=release "QMAKE_CXXFLAGS+=-fPIC"
+          # Newer Xcode clang errors on Qt 6.8's qyieldcpu.h __yield() call;
+          # demote that diagnostic back to a warning on macOS
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            EXTRA_QMAKE_FLAGS="QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration"
+          else
+            EXTRA_QMAKE_FLAGS=""
+          fi
+          qmake6 artemis.pro CONFIG+=release "QMAKE_CXXFLAGS+=-fPIC" $EXTRA_QMAKE_FLAGS
           make -j$(/usr/bin/env bash -lc 'command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu || nproc')
       - name: Checkout
         uses: actions/checkout@v4
@@ -836,7 +843,7 @@ jobs:
         
         # Force a complete clean build to ensure MOC files are generated
         make clean || true
-        qmake6 artemis.pro CONFIG+=release CONFIG+=sdk_no_version_check QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0
+        qmake6 artemis.pro CONFIG+=release CONFIG+=sdk_no_version_check QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0 "QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration"
         
         # Generate MOC files explicitly and ensure they're created before building
         make -j$(sysctl -n hw.ncpu) qmake_all
@@ -875,7 +882,7 @@ jobs:
             echo "Building $subdir with deployment target..."
             cd "$subdir"
             make clean || true
-            qmake6 *.pro CONFIG+=release QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0
+            qmake6 *.pro CONFIG+=release QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0 "QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration"
             make -j$(sysctl -n hw.ncpu)
             cd ..
           fi
@@ -883,12 +890,12 @@ jobs:
         
         # Build app sub-project to ensure .moc is picked up correctly
         cd app
-        qmake6 app.pro CONFIG+=release QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0
+        qmake6 app.pro CONFIG+=release QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0 "QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration"
         make -j$(sysctl -n hw.ncpu) release
         cd ..
         
         # Final build
-        qmake6 artemis.pro CONFIG+=release CONFIG+=sdk_no_version_check QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0
+        qmake6 artemis.pro CONFIG+=release CONFIG+=sdk_no_version_check QMAKE_MACOSX_DEPLOYMENT_TARGET=14.0 "QMAKE_CXXFLAGS+=-Wno-error=implicit-function-declaration"
         make -j$(sysctl -n hw.ncpu)
     
     - name: Package macOS Development Build
