@@ -197,6 +197,7 @@ SOURCES += \
     streaming/input/abstouch.cpp \
     streaming/input/gamepad.cpp \
     streaming/input/input.cpp \
+    streaming/input/keyboardhook_win32.cpp \
     streaming/input/keyboard.cpp \
     streaming/input/mouse.cpp \
     streaming/input/reltouch.cpp \
@@ -243,6 +244,7 @@ HEADERS += \
     settings/hotkeymanager.h \
     settings/streamingpreferences.h \
     streaming/input/input.h \
+    streaming/input/keyboardhook_win32.h \
     streaming/session.h \
     streaming/audio/renderers/renderer.h \
     streaming/audio/renderers/sdl.h \
