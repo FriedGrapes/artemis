@@ -26,6 +26,7 @@ on:
       - 'feature/**'
       - 'feat/**'
       - 'fix/**'
+      - 'claude/**'
   workflow_dispatch:  # Allow manual triggering
 
 env:
