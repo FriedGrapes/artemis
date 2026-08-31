@@ -9,6 +9,7 @@ import SdlGamepadKeyNavigation 1.0
 import SystemProperties 1.0
 import ClipboardManager 1.0
 import ServerCommandManager 1.0
+import HotkeyManager 1.0
 
 Flickable {
     id: settingsPage
@@ -93,6 +94,16 @@ Flickable {
         // Also save preferences on destruction, since we won't get a
         // deactivating callback if the user just closes Moonlight
         StreamingPreferences.save()
+    }
+
+    // Catches clicks on empty page space so that clicking outside a hotkey
+    // capture field defocuses it, canceling the capture
+    MouseArea {
+        width: settingsPage.contentWidth
+        height: settingsPage.contentHeight
+        onPressed: function(mouse) {
+            settingsPage.forceActiveFocus()
+        }
     }
 
     Column {
@@ -1477,9 +1488,17 @@ Flickable {
                     ToolTip.delay: 1000
                     ToolTip.timeout: 10000
                     ToolTip.visible: hovered
-                    ToolTip.text: qsTr("This enables seamless mouse control without capturing the client's mouse cursor. It is ideal for remote desktop usage but will not work in most games.") + " " +
-                                  qsTr("You can toggle this while streaming using Ctrl+Alt+Shift+M.") + "\n\n" +
-                                  qsTr("NOTE: Due to a bug in GeForce Experience, this option may not work properly if your host PC has multiple monitors.")
+                    ToolTip.text: {
+                        // Reference revision so this re-evaluates when hotkeys change
+                        var revision = HotkeyManager.revision
+                        var combo = HotkeyManager.getDisplayString(HotkeyManager.ActionToggleMouseMode)
+                        var text = qsTr("This enables seamless mouse control without capturing the client's mouse cursor. It is ideal for remote desktop usage but will not work in most games.")
+                        if (combo !== "") {
+                            text += " " + qsTr("You can toggle this while streaming using %1.").arg(combo)
+                        }
+                        text += "\n\n" + qsTr("NOTE: Due to a bug in GeForce Experience, this option may not work properly if your host PC has multiple monitors.")
+                        return text
+                    }
                 }
 
                 Row {
@@ -1596,6 +1615,67 @@ Flickable {
                     onCheckedChanged: {
                         StreamingPreferences.reverseScrollDirection = checked
                     }
+                }
+            }
+        }
+
+        GroupBox {
+            id: hotkeySettingsGroupBox
+            width: (parent.width - (parent.leftPadding + parent.rightPadding))
+            padding: 12
+            title: "<font color=\"skyblue\">" + qsTr("Hotkeys") + "</font>"
+            font.pointSize: 12
+
+            Column {
+                anchors.fill: parent
+                spacing: 5
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Click a field and press the new key combination. A combination must include Ctrl, Alt, Shift, or the Windows key, plus one other key. Press Enter to clear a binding.")
+                    font.pointSize: 10
+                    wrapMode: Text.Wrap
+                }
+
+                Repeater {
+                    model: HotkeyManager.getActionCount()
+
+                    delegate: Row {
+                        width: parent.width
+                        spacing: 10
+
+                        Label {
+                            id: hotkeyActionLabel
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 235
+                            text: HotkeyManager.getActionName(index)
+                            font.pointSize: 12
+                            wrapMode: Text.Wrap
+
+                            MouseArea {
+                                id: hotkeyLabelMouseArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            ToolTip.delay: 1000
+                            ToolTip.timeout: 10000
+                            ToolTip.visible: hotkeyLabelMouseArea.containsMouse
+                            ToolTip.text: HotkeyManager.getActionDescription(index)
+                        }
+
+                        HotkeyCaptureField {
+                            actionIndex: index
+                            width: 225
+                        }
+                    }
+                }
+
+                Button {
+                    text: qsTr("Restore default hotkeys")
+                    font.pointSize: 12
+                    onClicked: HotkeyManager.restoreDefaults()
                 }
             }
         }
@@ -1953,9 +2033,20 @@ Flickable {
                     ToolTip.delay: 1000
                     ToolTip.timeout: 5000
                     ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Display real-time stream performance information while streaming.") + "\n\n" +
-                                  qsTr("You can toggle it at any time while streaming using Ctrl+Alt+Shift+S or Select+L1+R1+X.") + "\n\n" +
-                                  qsTr("The performance overlay is not supported on Steam Link or Raspberry Pi.")
+                    ToolTip.text: {
+                        // Reference revision so this re-evaluates when hotkeys change
+                        var revision = HotkeyManager.revision
+                        var combo = HotkeyManager.getDisplayString(HotkeyManager.ActionToggleStatsOverlay)
+                        var text = qsTr("Display real-time stream performance information while streaming.") + "\n\n"
+                        if (combo !== "") {
+                            text += qsTr("You can toggle it at any time while streaming using %1 or Select+L1+R1+X.").arg(combo)
+                        }
+                        else {
+                            text += qsTr("You can toggle it at any time while streaming using Select+L1+R1+X.")
+                        }
+                        text += "\n\n" + qsTr("The performance overlay is not supported on Steam Link or Raspberry Pi.")
+                        return text
+                    }
                 }
             }
         }

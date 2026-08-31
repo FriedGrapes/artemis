@@ -191,6 +191,7 @@ SOURCES += \
     cli/quitstream.cpp \
     cli/startstream.cpp \
     settings/compatfetcher.cpp \
+    settings/hotkeymanager.cpp \
     settings/mappingfetcher.cpp \
     settings/streamingpreferences.cpp \
     streaming/input/abstouch.cpp \
@@ -239,6 +240,7 @@ HEADERS += \
     cli/listapps.h \
     cli/quitstream.h \
     cli/startstream.h \
+    settings/hotkeymanager.h \
     settings/streamingpreferences.h \
     streaming/input/input.h \
     streaming/session.h \

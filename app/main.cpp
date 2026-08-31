@@ -46,6 +46,7 @@
 #include "backend/systemproperties.h"
 #include "streaming/session.h"
 #include "settings/streamingpreferences.h"
+#include "settings/hotkeymanager.h"
 #include "gui/sdlgamepadkeynavigation.h"
 #include "backend/clipboardmanager.h"
 #include "backend/servercommandmanager.h"
@@ -730,6 +731,13 @@ int main(int argc, char *argv[])
                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
                                                        return StreamingPreferences::get(qmlEngine);
                                                    });
+    qmlRegisterSingletonType<HotkeyManager>("HotkeyManager", 1, 0,
+                                            "HotkeyManager",
+                                            [](QQmlEngine*, QJSEngine*) -> QObject* {
+                                                HotkeyManager* manager = HotkeyManager::get();
+                                                QQmlEngine::setObjectOwnership(manager, QQmlEngine::CppOwnership);
+                                                return manager;
+                                            });
     qmlRegisterSingletonType<ClipboardManager>("ClipboardManager", 1, 0,
                                                "ClipboardManager",
                                                &ClipboardManager::create);
