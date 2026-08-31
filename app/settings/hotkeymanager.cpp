@@ -114,6 +114,26 @@ QString HotkeyManager::getActionDescription(int action)
     return tr(k_Actions[action].description);
 }
 
+bool HotkeyManager::isActionSupported(int action)
+{
+    if (action < 0 || action >= ActionCount) {
+        return false;
+    }
+
+    // The Ignore Hotkey needs a low-level keyboard hook to hold its combo
+    // back from the client OS's system-key capture; that only exists on
+    // Windows. Everywhere else the action would be inert, so hide it.
+    if (action == ActionIgnore) {
+#if defined(Q_OS_WIN)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    return true;
+}
+
 QString HotkeyManager::getDisplayString(int action)
 {
     int mods, key;

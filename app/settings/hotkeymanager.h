@@ -53,6 +53,12 @@ public:
     // Translated description for an action (used for tooltips)
     Q_INVOKABLE QString getActionDescription(int action);
 
+    // Whether an action is functional on the current platform. The Ignore
+    // Hotkey depends on a platform-specific keyboard hook that only exists
+    // on Windows, so it is reported unsupported (and hidden in Settings)
+    // elsewhere. All other actions are supported everywhere.
+    Q_INVOKABLE bool isActionSupported(int action);
+
     // Display string of the action's current binding ("" if unbound)
     Q_INVOKABLE QString getDisplayString(int action);
 
