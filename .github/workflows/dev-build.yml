@@ -2021,9 +2021,11 @@ jobs:
         body: |
           ${{ (github.ref_name == 'main' || github.ref_name == 'master') && '🚀 **Production Release** 🚀
 
-          This is an official production release of Artemis Desktop.
+          ⚠️ **Unofficial fork build — not an official Artemis Desktop release.**
 
-          **✅ Stable**: This release has been tested and is recommended for general use.' || '🚧 **Development Build** 🚧
+          This is a personal fork maintained for my own use and experimentation, and releases here are built for my own machines. This build is provided **as-is, with no warranty of any kind** — it may not work correctly on your setup. I generally test on **Mac (Apple Silicon/M-series)** and **Windows x64** before pushing to `main`, but other platforms/configurations are untested.
+
+          If you''re looking for the official Artemis Desktop, please use the [upstream project](https://github.com/wjbeckett/artemis).' || '🚧 **Development Build** 🚧
           
           This is an automated development build from the `develop` branch.
           
