@@ -198,6 +198,75 @@ static bool isModifierKeyCode(short keyCode)
 }
 #endif
 
+#ifdef Q_OS_WIN
+// Keeps the modifier state the host believes in agreement with the keys the
+// user is physically holding.
+//
+// Two things pull them apart. Losing focus raises every key on the host (see
+// raiseAllKeys()), but a modifier that was never physically released will
+// never generate another key down event, so the host keeps believing it is
+// up. And once SDL's own keyboard state has been reset by that focus change,
+// SDL discards the eventual release as redundant, so the host never learns
+// about it either and the modifier stays stuck down instead.
+//
+// The Ignore Hotkey makes both easy to hit, since switching the client to
+// another desktop and back while still holding the combo's modifiers is
+// exactly this situation. Ask the OS what is really held rather than SDL,
+// whose state is not restored after a focus change.
+//
+// modifierFlags, when given, is updated to match so the key being forwarded
+// carries the right modifiers.
+void SdlInputHandler::syncHeldModifiers(char* modifierFlags)
+{
+    static const struct {
+        int vkCode;
+        short keyCode;
+        char modifierFlag;
+        bool isSystemKey;
+    } k_Modifiers[] = {
+        { 0xA2, 0xA2, MODIFIER_CTRL,  false }, // VK_LCONTROL
+        { 0xA3, 0xA3, MODIFIER_CTRL,  false }, // VK_RCONTROL
+        { 0xA0, 0xA0, MODIFIER_SHIFT, false }, // VK_LSHIFT
+        { 0xA1, 0xA1, MODIFIER_SHIFT, false }, // VK_RSHIFT
+        { 0xA4, 0xA4, MODIFIER_ALT,   false }, // VK_LMENU
+        { 0xA5, 0xA5, MODIFIER_ALT,   false }, // VK_RMENU
+        { 0x5B, 0x5B, MODIFIER_META,  true },  // VK_LWIN
+        { 0x5C, 0x5C, MODIFIER_META,  true },  // VK_RWIN
+    };
+
+    for (auto& modifier : k_Modifiers) {
+        bool physicallyDown = Win32KeyboardHook::isKeyPhysicallyDown(modifier.vkCode);
+        bool hostThinksDown = m_KeysDown.contains(modifier.keyCode);
+
+        // The Win key is only ever forwarded while capturing system keys
+        if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
+            physicallyDown = false;
+        }
+
+        if (physicallyDown && modifierFlags != nullptr) {
+            *modifierFlags |= modifier.modifierFlag;
+        }
+
+        if (physicallyDown == hostThinksDown) {
+            continue;
+        }
+
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Syncing modifier 0x%x to %s",
+                    modifier.keyCode, physicallyDown ? "down" : "up");
+
+        if (physicallyDown) {
+            m_KeysDown.insert(modifier.keyCode);
+            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_DOWN, 0);
+        }
+        else {
+            m_KeysDown.remove(modifier.keyCode);
+            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_UP, 0);
+        }
+    }
+}
+#endif
+
 void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 {
     short keyCode;
@@ -534,61 +603,8 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
     }
 
 #ifdef Q_OS_WIN
-    // The host tracks modifier state from the key events we send it, so a
-    // modifier it believes is up stays up until we send another key down
-    // for it. Losing focus raises every key on the host (see raiseAllKeys())
-    // but a modifier that was never physically released will never generate
-    // another key down event on its own, so everything typed after regaining
-    // focus would reach the host unmodified.
-    //
-    // The Ignore Hotkey makes this easy to hit: switching the client to
-    // another desktop and back while still holding the combo's modifiers is
-    // exactly this situation.
-    //
-    // Ask the OS which modifiers are physically held rather than using the
-    // modifier state on the event, which comes from SDL's own bookkeeping
-    // and is not restored after a focus change.
-    if (event->state == SDL_PRESSED && !isModifierKeyCode(keyCode)) {
-        static const struct {
-            int vkCode;
-            short keyCode;
-            char modifierFlag;
-            bool isSystemKey;
-        } k_Modifiers[] = {
-            { 0xA2, 0xA2, MODIFIER_CTRL,  false }, // VK_LCONTROL
-            { 0xA3, 0xA3, MODIFIER_CTRL,  false }, // VK_RCONTROL
-            { 0xA0, 0xA0, MODIFIER_SHIFT, false }, // VK_LSHIFT
-            { 0xA1, 0xA1, MODIFIER_SHIFT, false }, // VK_RSHIFT
-            { 0xA4, 0xA4, MODIFIER_ALT,   false }, // VK_LMENU
-            { 0xA5, 0xA5, MODIFIER_ALT,   false }, // VK_RMENU
-            { 0x5B, 0x5B, MODIFIER_META,  true },  // VK_LWIN
-            { 0x5C, 0x5C, MODIFIER_META,  true },  // VK_RWIN
-        };
-
-        for (auto& modifier : k_Modifiers) {
-            if (!Win32KeyboardHook::isKeyPhysicallyDown(modifier.vkCode)) {
-                continue;
-            }
-
-            // The Win key is only ever forwarded while capturing system keys
-            if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
-                continue;
-            }
-
-            // Keep the modifier flags on this key event truthful too
-            modifiers |= modifier.modifierFlag;
-
-            if (m_KeysDown.contains(modifier.keyCode)) {
-                continue;
-            }
-
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Reasserting modifier 0x%x that is held but was raised on the host",
-                        modifier.keyCode);
-
-            m_KeysDown.insert(modifier.keyCode);
-            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_DOWN, 0);
-        }
+    if (!isModifierKeyCode(keyCode)) {
+        syncHeldModifiers(&modifiers);
     }
 #endif
 

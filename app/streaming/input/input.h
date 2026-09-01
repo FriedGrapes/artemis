@@ -188,6 +188,10 @@ private:
 
     void performSpecialKeyCombo(KeyCombo combo);
 
+#ifdef Q_OS_WIN
+    void syncHeldModifiers(char* modifierFlags);
+#endif
+
     static
     Uint32 longPressTimerCallback(Uint32 interval, void* param);
 
