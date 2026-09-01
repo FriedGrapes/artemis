@@ -9,8 +9,13 @@
 
 static HHOOK s_Hook = nullptr;
 static HWND s_TargetWindow = nullptr;
+static SDL_Window* s_SdlWindow = nullptr;
 static int s_IgnoreModMask = 0;
 static int s_IgnoreVkCode = 0;
+
+// Tracks which of the keys we intercept are currently held, so auto-repeat
+// can be flagged as such rather than delivered as a fresh press.
+static bool s_KeyDown[256];
 
 // Collapses the left/right variants of a modifier key into the
 // HotkeyManager modifier bit it represents (0 if it isn't a modifier).
@@ -54,26 +59,36 @@ static bool isIgnoreComboKey(DWORD vkCode)
     return modBit != 0 && (s_IgnoreModMask & modBit) != 0;
 }
 
-// Rebuilds the lParam of the original WM_KEY* message from the hook data so
-// the reposted message is indistinguishable from the real one.
-static LPARAM rebuildLParam(const KBDLLHOOKSTRUCT* data, bool isDown)
+// The keys we swallow: those the client OS would otherwise act on itself
+// while we are capturing system shortcuts.
+static SDL_Scancode interceptedScancodeForVk(DWORD vkCode)
 {
-    LPARAM lParam = 1; // repeat count
-
-    lParam |= (LPARAM)(data->scanCode & 0xFF) << 16;
-
-    if (data->flags & LLKHF_EXTENDED) {
-        lParam |= 1ll << 24;
+    switch (vkCode) {
+    case VK_LWIN:     return SDL_SCANCODE_LGUI;
+    case VK_RWIN:     return SDL_SCANCODE_RGUI;
+    case VK_TAB:      return SDL_SCANCODE_TAB;
+    case VK_ESCAPE:   return SDL_SCANCODE_ESCAPE;
+    case VK_SNAPSHOT: return SDL_SCANCODE_PRINTSCREEN;
+    default:          return SDL_SCANCODE_UNKNOWN;
     }
-    if (data->flags & LLKHF_ALTDOWN) {
-        lParam |= 1ll << 29;
-    }
-    if (!isDown) {
-        // Previous key state and transition state are both set on release
-        lParam |= (1ll << 30) | (1ll << 31);
+}
+
+// Keeps SDL's modifier state in step with the modifier keys we swallow.
+// Without this, SDL would never see the Win key go down, so keys that
+// follow it would be reported (and forwarded to the host) without their
+// Meta modifier, and Win-based hotkeys could never match.
+static void syncModStateForScancode(SDL_Scancode scancode, bool isDown)
+{
+    SDL_Keymod bit;
+    switch (scancode) {
+    case SDL_SCANCODE_LGUI: bit = KMOD_LGUI; break;
+    case SDL_SCANCODE_RGUI: bit = KMOD_RGUI; break;
+    default:
+        return;
     }
 
-    return lParam;
+    SDL_Keymod mod = SDL_GetModState();
+    SDL_SetModState((SDL_Keymod)(isDown ? (mod | bit) : (mod & ~bit)));
 }
 
 static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -105,21 +120,34 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
     }
 
-    // Swallow the keys the client OS would otherwise act on itself, and
-    // repost them to our window so they are forwarded to the host. This is
-    // the same set SDL's keyboard grab intercepts.
-    switch (data->vkCode) {
-    case VK_LWIN:
-    case VK_RWIN:
-    case VK_TAB:
-    case VK_ESCAPE:
-        break;
-    default:
+    SDL_Scancode scancode = interceptedScancodeForVk(data->vkCode);
+    if (scancode == SDL_SCANCODE_UNKNOWN) {
+        // Not ours to intercept; it reaches us normally as the focused window
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
     }
 
     bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
-    PostMessage(s_TargetWindow, (UINT)wParam, data->vkCode, rebuildLParam(data, isDown));
+    bool isRepeat = isDown && s_KeyDown[data->vkCode & 0xFF];
+    s_KeyDown[data->vkCode & 0xFF] = isDown;
+
+    syncModStateForScancode(scancode, isDown);
+
+    // Deliver the key into SDL's event queue directly rather than reposting
+    // a window message: posted messages are processed ahead of pending
+    // hardware input, which would reorder these keys relative to the ones
+    // that reach us normally (e.g. delivering Win down *and up* before the
+    // key that was pressed while it was held).
+    SDL_Event event = {};
+    event.type = isDown ? SDL_KEYDOWN : SDL_KEYUP;
+    event.key.timestamp = SDL_GetTicks();
+    event.key.windowID = s_SdlWindow != nullptr ? SDL_GetWindowID(s_SdlWindow) : 0;
+    event.key.state = isDown ? SDL_PRESSED : SDL_RELEASED;
+    event.key.repeat = isRepeat ? 1 : 0;
+    event.key.keysym.scancode = scancode;
+    event.key.keysym.sym = SDL_GetKeyFromScancode(scancode);
+    event.key.keysym.mod = SDL_GetModState();
+    SDL_PushEvent(&event);
+
     return 1;
 }
 
@@ -138,6 +166,7 @@ bool Win32KeyboardHook::install(SDL_Window* window, int ignoreModMask, int ignor
     }
 
     s_TargetWindow = info.info.win.window;
+    s_SdlWindow = window;
     s_IgnoreModMask = ignoreModMask;
     s_IgnoreVkCode = ignoreVkCode;
 
@@ -146,11 +175,14 @@ bool Win32KeyboardHook::install(SDL_Window* window, int ignoreModMask, int ignor
         return true;
     }
 
+    SDL_zeroa(s_KeyDown);
+
     s_Hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardHookProc, GetModuleHandle(nullptr), 0);
     if (s_Hook == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "SetWindowsHookEx() failed: %d", (int)GetLastError());
         s_TargetWindow = nullptr;
+        s_SdlWindow = nullptr;
         return false;
     }
 
@@ -166,10 +198,15 @@ void Win32KeyboardHook::uninstall()
         UnhookWindowsHookEx(s_Hook);
         s_Hook = nullptr;
 
+        // Don't leave a Win key we swallowed stuck down in SDL's state
+        SDL_SetModState((SDL_Keymod)(SDL_GetModState() & ~(KMOD_LGUI | KMOD_RGUI)));
+        SDL_zeroa(s_KeyDown);
+
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Removed keyboard hook");
     }
 
     s_TargetWindow = nullptr;
+    s_SdlWindow = nullptr;
     s_IgnoreModMask = 0;
     s_IgnoreVkCode = 0;
 }

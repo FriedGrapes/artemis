@@ -318,6 +318,53 @@ void SdlInputHandler::notifyFocusLost()
     raiseAllKeys();
 }
 
+
+void SdlInputHandler::notifyFocusGained()
+{
+    // Any keys held when we lost focus were raised on the host by
+    // raiseAllKeys(). Modifiers that are still physically held will never
+    // generate another key down event on their own, so the host would keep
+    // believing they are up and would mis-handle everything typed until
+    // they are released and pressed again. Re-assert them now.
+    static const struct {
+        SDL_Keymod mod;
+        short keyCode;
+        bool isSystemKey;
+    } k_Modifiers[] = {
+        { KMOD_LCTRL,  0xA2, false },
+        { KMOD_RCTRL,  0xA3, false },
+        { KMOD_LSHIFT, 0xA0, false },
+        { KMOD_RSHIFT, 0xA1, false },
+        { KMOD_LALT,   0xA4, false },
+        { KMOD_RALT,   0xA5, false },
+        { KMOD_LGUI,   0x5B, true },
+        { KMOD_RGUI,   0x5C, true },
+    };
+
+    SDL_Keymod modState = SDL_GetModState();
+
+    for (auto& modifier : k_Modifiers) {
+        if (!(modState & modifier.mod)) {
+            continue;
+        }
+
+        // The Win key is only ever forwarded while capturing system keys
+        if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
+            continue;
+        }
+
+        if (m_KeysDown.contains(modifier.keyCode)) {
+            continue;
+        }
+
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Reasserting modifier 0x%x held across focus change",
+                    modifier.keyCode);
+
+        m_KeysDown.insert(modifier.keyCode);
+        LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_DOWN, 0);
+    }
+}
 bool SdlInputHandler::isCaptureActive()
 {
     if (SDL_GetRelativeMouseMode()) {
