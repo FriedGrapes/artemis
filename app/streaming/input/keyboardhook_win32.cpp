@@ -211,6 +211,11 @@ void Win32KeyboardHook::uninstall()
     s_IgnoreVkCode = 0;
 }
 
+bool Win32KeyboardHook::isKeyPhysicallyDown(int vkCode)
+{
+    return (GetAsyncKeyState(vkCode) & 0x8000) != 0;
+}
+
 bool Win32KeyboardHook::isInstalled()
 {
     return s_Hook != nullptr;

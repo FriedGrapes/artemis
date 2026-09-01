@@ -1,6 +1,7 @@
 #include "streaming/session.h"
 
 #include "settings/hotkeymanager.h"
+#include "keyboardhook_win32.h"
 
 #include <Limelight.h>
 #include "SDL_compat.h"
@@ -538,30 +539,34 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
     // for it. Losing focus raises every key on the host (see raiseAllKeys())
     // but a modifier that was never physically released will never generate
     // another key down event on its own, so everything typed after regaining
-    // focus would reach the host unmodified. Press any such modifier again
-    // before sending the key that needs it.
+    // focus would reach the host unmodified.
     //
     // The Ignore Hotkey makes this easy to hit: switching the client to
     // another desktop and back while still holding the combo's modifiers is
     // exactly this situation.
+    //
+    // Ask the OS which modifiers are physically held rather than using the
+    // modifier state on the event, which comes from SDL's own bookkeeping
+    // and is not restored after a focus change.
     if (event->state == SDL_PRESSED && !isModifierKeyCode(keyCode)) {
         static const struct {
-            SDL_Keymod mod;
+            int vkCode;
             short keyCode;
+            char modifierFlag;
             bool isSystemKey;
         } k_Modifiers[] = {
-            { KMOD_LCTRL,  0xA2, false },
-            { KMOD_RCTRL,  0xA3, false },
-            { KMOD_LSHIFT, 0xA0, false },
-            { KMOD_RSHIFT, 0xA1, false },
-            { KMOD_LALT,   0xA4, false },
-            { KMOD_RALT,   0xA5, false },
-            { KMOD_LGUI,   0x5B, true },
-            { KMOD_RGUI,   0x5C, true },
+            { 0xA2, 0xA2, MODIFIER_CTRL,  false }, // VK_LCONTROL
+            { 0xA3, 0xA3, MODIFIER_CTRL,  false }, // VK_RCONTROL
+            { 0xA0, 0xA0, MODIFIER_SHIFT, false }, // VK_LSHIFT
+            { 0xA1, 0xA1, MODIFIER_SHIFT, false }, // VK_RSHIFT
+            { 0xA4, 0xA4, MODIFIER_ALT,   false }, // VK_LMENU
+            { 0xA5, 0xA5, MODIFIER_ALT,   false }, // VK_RMENU
+            { 0x5B, 0x5B, MODIFIER_META,  true },  // VK_LWIN
+            { 0x5C, 0x5C, MODIFIER_META,  true },  // VK_RWIN
         };
 
         for (auto& modifier : k_Modifiers) {
-            if (!(event->keysym.mod & modifier.mod)) {
+            if (!Win32KeyboardHook::isKeyPhysicallyDown(modifier.vkCode)) {
                 continue;
             }
 
@@ -569,6 +574,9 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
             if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
                 continue;
             }
+
+            // Keep the modifier flags on this key event truthful too
+            modifiers |= modifier.modifierFlag;
 
             if (m_KeysDown.contains(modifier.keyCode)) {
                 continue;

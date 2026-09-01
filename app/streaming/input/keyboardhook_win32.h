@@ -37,6 +37,11 @@ public:
 
     static void uninstall();
 
+    // True if the given Windows virtual-key code is physically held right
+    // now, according to the OS rather than SDL's own bookkeeping (which is
+    // reset across focus changes and cannot be relied on afterwards).
+    static bool isKeyPhysicallyDown(int vkCode);
+
     static bool isInstalled();
 };
 
