@@ -218,6 +218,15 @@ static bool isModifierKeyCode(short keyCode)
 // carries the right modifiers.
 void SdlInputHandler::syncHeldModifiers(char* modifierFlags)
 {
+    // SDL's keyboard grab swallows the modifier keys themselves before they
+    // reach the OS, so while it is the thing capturing, the OS would report
+    // every modifier as up no matter what the user is holding. Syncing
+    // against that would release modifiers out from under the host. Our own
+    // hook deliberately passes them through, so its state is trustworthy.
+    if (!m_UsingCustomKeyboardHook && isSystemKeyCaptureActive()) {
+        return;
+    }
+
     // Only the modifiers that reach the OS normally can be checked this way.
     // The Win key is deliberately swallowed while we are capturing system
     // keys (by our hook, or by SDL's grab when no Ignore Hotkey is bound),
