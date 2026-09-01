@@ -2263,7 +2263,6 @@ void Session::execInternal()
                 }
                 break;
             case SDL_WINDOWEVENT_FOCUS_GAINED:
-                m_InputHandler->notifyFocusGained();
                 if (m_Preferences->muteOnFocusLoss) {
                     m_AudioMuted = false;
                 }

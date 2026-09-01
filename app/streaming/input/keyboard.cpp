@@ -176,6 +176,27 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
     }
 }
 
+#ifdef Q_OS_WIN
+// True for the Windows virtual-key codes of the modifier keys themselves,
+// which must not trigger the re-assert logic below on their own press.
+static bool isModifierKeyCode(short keyCode)
+{
+    switch (keyCode) {
+    case 0xA0: // VK_LSHIFT
+    case 0xA1: // VK_RSHIFT
+    case 0xA2: // VK_LCONTROL
+    case 0xA3: // VK_RCONTROL
+    case 0xA4: // VK_LMENU
+    case 0xA5: // VK_RMENU
+    case 0x5B: // VK_LWIN
+    case 0x5C: // VK_RWIN
+        return true;
+    default:
+        return false;
+    }
+}
+#endif
+
 void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 {
     short keyCode;
@@ -510,6 +531,58 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 return;
         }
     }
+
+#ifdef Q_OS_WIN
+    // The host tracks modifier state from the key events we send it, so a
+    // modifier it believes is up stays up until we send another key down
+    // for it. Losing focus raises every key on the host (see raiseAllKeys())
+    // but a modifier that was never physically released will never generate
+    // another key down event on its own, so everything typed after regaining
+    // focus would reach the host unmodified. Press any such modifier again
+    // before sending the key that needs it.
+    //
+    // The Ignore Hotkey makes this easy to hit: switching the client to
+    // another desktop and back while still holding the combo's modifiers is
+    // exactly this situation.
+    if (event->state == SDL_PRESSED && !isModifierKeyCode(keyCode)) {
+        static const struct {
+            SDL_Keymod mod;
+            short keyCode;
+            bool isSystemKey;
+        } k_Modifiers[] = {
+            { KMOD_LCTRL,  0xA2, false },
+            { KMOD_RCTRL,  0xA3, false },
+            { KMOD_LSHIFT, 0xA0, false },
+            { KMOD_RSHIFT, 0xA1, false },
+            { KMOD_LALT,   0xA4, false },
+            { KMOD_RALT,   0xA5, false },
+            { KMOD_LGUI,   0x5B, true },
+            { KMOD_RGUI,   0x5C, true },
+        };
+
+        for (auto& modifier : k_Modifiers) {
+            if (!(event->keysym.mod & modifier.mod)) {
+                continue;
+            }
+
+            // The Win key is only ever forwarded while capturing system keys
+            if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
+                continue;
+            }
+
+            if (m_KeysDown.contains(modifier.keyCode)) {
+                continue;
+            }
+
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Reasserting modifier 0x%x that is held but was raised on the host",
+                        modifier.keyCode);
+
+            m_KeysDown.insert(modifier.keyCode);
+            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_DOWN, 0);
+        }
+    }
+#endif
 
     // Track the key state so we always know which keys are down
     if (event->state == SDL_PRESSED) {

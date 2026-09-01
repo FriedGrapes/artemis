@@ -138,7 +138,6 @@ public:
 
     void notifyFocusLost();
 
-    void notifyFocusGained();
 
     bool isCaptureActive();
 
