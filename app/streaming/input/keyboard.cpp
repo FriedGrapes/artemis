@@ -218,30 +218,27 @@ static bool isModifierKeyCode(short keyCode)
 // carries the right modifiers.
 void SdlInputHandler::syncHeldModifiers(char* modifierFlags)
 {
+    // Only the modifiers that reach the OS normally can be checked this way.
+    // The Win key is deliberately swallowed while we are capturing system
+    // keys (by our hook, or by SDL's grab when no Ignore Hotkey is bound),
+    // so the OS never sees it go down and would always report it as up.
+    // Its state is tracked through the normal key event path instead.
     static const struct {
         int vkCode;
         short keyCode;
         char modifierFlag;
-        bool isSystemKey;
     } k_Modifiers[] = {
-        { 0xA2, 0xA2, MODIFIER_CTRL,  false }, // VK_LCONTROL
-        { 0xA3, 0xA3, MODIFIER_CTRL,  false }, // VK_RCONTROL
-        { 0xA0, 0xA0, MODIFIER_SHIFT, false }, // VK_LSHIFT
-        { 0xA1, 0xA1, MODIFIER_SHIFT, false }, // VK_RSHIFT
-        { 0xA4, 0xA4, MODIFIER_ALT,   false }, // VK_LMENU
-        { 0xA5, 0xA5, MODIFIER_ALT,   false }, // VK_RMENU
-        { 0x5B, 0x5B, MODIFIER_META,  true },  // VK_LWIN
-        { 0x5C, 0x5C, MODIFIER_META,  true },  // VK_RWIN
+        { 0xA2, 0xA2, MODIFIER_CTRL  }, // VK_LCONTROL
+        { 0xA3, 0xA3, MODIFIER_CTRL  }, // VK_RCONTROL
+        { 0xA0, 0xA0, MODIFIER_SHIFT }, // VK_LSHIFT
+        { 0xA1, 0xA1, MODIFIER_SHIFT }, // VK_RSHIFT
+        { 0xA4, 0xA4, MODIFIER_ALT   }, // VK_LMENU
+        { 0xA5, 0xA5, MODIFIER_ALT   }, // VK_RMENU
     };
 
     for (auto& modifier : k_Modifiers) {
         bool physicallyDown = Win32KeyboardHook::isKeyPhysicallyDown(modifier.vkCode);
         bool hostThinksDown = m_KeysDown.contains(modifier.keyCode);
-
-        // The Win key is only ever forwarded while capturing system keys
-        if (modifier.isSystemKey && !isSystemKeyCaptureActive()) {
-            physicallyDown = false;
-        }
 
         if (physicallyDown && modifierFlags != nullptr) {
             *modifierFlags |= modifier.modifierFlag;
