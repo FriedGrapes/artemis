@@ -455,6 +455,13 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 keyCode = 0x2B;
                 break;
             case SDL_SCANCODE_PRINTSCREEN:
+                // The client OS always acts on this key itself, so forwarding
+                // it as well would take a screenshot on both machines. Only
+                // send it when we are capturing system keys, which is the same
+                // rule the Win key below follows.
+                if (!isSystemKeyCaptureActive()) {
+                    return;
+                }
                 keyCode = 0x2C;
                 break;
             case SDL_SCANCODE_INSERT:

@@ -71,7 +71,8 @@ static const HotkeyActionInfo k_Actions[HotkeyManager::ActionCount] = {
       QT_TRANSLATE_NOOP("HotkeyManager", "Ignore Hotkey"),
       QT_TRANSLATE_NOOP("HotkeyManager", "This key combo is never sent to the host and is left for the client PC to process, "
                                          "even when capturing system keyboard shortcuts. Useful for local push-to-talk keys, "
-                                         "AutoHotkey scripts, and similar client-side tools. Unbound by default."),
+                                         "AutoHotkey scripts, and similar client-side tools. Unbound by default. "
+                                         "The Win key cannot be used as a modifier for this combo."),
       0, 0 },
 };
 
@@ -517,6 +518,17 @@ void HotkeyManager::setHotkey(int action, int qtModifiers, int qtKey)
     if (action < 0 || action >= ActionCount || qtKey == 0) {
         return;
     }
+
+#if defined(Q_OS_WIN)
+    // The Ignore Hotkey cannot use the Win key as a modifier. Our keyboard
+    // hook has to swallow that key to keep the client OS from acting on it,
+    // so it cannot also hand it to the combo, and letting one be bound would
+    // silently break every other Win shortcut. Reject it rather than storing
+    // a combo that cannot work.
+    if (action == ActionIgnore && (qtModifiers & Qt::MetaModifier)) {
+        return;
+    }
+#endif
 
     // Store the canonical (unshifted) key so conflict detection and
     // display are consistent regardless of how the key arrived from Qt

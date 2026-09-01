@@ -112,7 +112,11 @@ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, i
         if (HotkeyManager::getBinding(HotkeyManager::ActionIgnore, qtMods, qtKey)) {
             int vkCode = HotkeyManager::qtKeyToWindowsVk(qtKey, qtMods);
             int modMask = HotkeyManager::qtModsToHotkeyModMask(qtMods);
-            if (vkCode != 0 && modMask != 0) {
+            // A combo using the Win key cannot work: the hook must swallow
+            // that key to keep the client OS out of it. setHotkey() refuses
+            // to store one, but an older saved binding may still have it.
+            if (vkCode != 0 && modMask != 0 &&
+                    !(modMask & HotkeyManager::HkModGui)) {
                 m_IgnoreHotkeyVkCode = vkCode;
                 m_IgnoreHotkeyModMask = modMask;
             }
@@ -316,6 +320,13 @@ void SdlInputHandler::notifyFocusLost()
     // Raise all keys that are currently pressed. If we don't do this, certain keys
     // used in shortcuts that cause focus loss (such as Alt+Tab) may get stuck down.
     raiseAllKeys();
+
+#ifdef Q_OS_WIN
+    // A key we swallow may be held right now (locking the workstation with
+    // Win+L is the common case) and we will never see its release, so forget
+    // it rather than letting the stale state wedge later input.
+    Win32KeyboardHook::resetKeyState();
+#endif
 }
 
 bool SdlInputHandler::isCaptureActive()

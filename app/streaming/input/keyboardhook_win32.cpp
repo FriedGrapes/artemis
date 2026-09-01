@@ -211,6 +211,16 @@ void Win32KeyboardHook::uninstall()
     s_IgnoreVkCode = 0;
 }
 
+void Win32KeyboardHook::resetKeyState()
+{
+    SDL_zeroa(s_KeyDown);
+
+    // Don't leave a swallowed Win key stuck down in SDL's modifier state,
+    // which would add a phantom Meta modifier to every later key and stop
+    // any hotkey from matching.
+    SDL_SetModState((SDL_Keymod)(SDL_GetModState() & ~(KMOD_LGUI | KMOD_RGUI)));
+}
+
 bool Win32KeyboardHook::isKeyPhysicallyDown(int vkCode)
 {
     return (GetAsyncKeyState(vkCode) & 0x8000) != 0;

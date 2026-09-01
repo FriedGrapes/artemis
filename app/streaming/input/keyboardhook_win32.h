@@ -42,6 +42,13 @@ public:
     // reset across focus changes and cannot be relied on afterwards).
     static bool isKeyPhysicallyDown(int vkCode);
 
+    // Forgets the state of the keys we swallow. Called when the window loses
+    // focus, since a key held at that moment (Win+L is the obvious case) will
+    // never deliver its release to us, and the stale state would otherwise
+    // make the next press look like an auto-repeat and leave SDL believing a
+    // modifier is still held.
+    static void resetKeyState();
+
     static bool isInstalled();
 };
 
