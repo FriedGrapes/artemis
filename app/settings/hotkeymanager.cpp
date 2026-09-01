@@ -71,7 +71,8 @@ static const HotkeyActionInfo k_Actions[HotkeyManager::ActionCount] = {
       QT_TRANSLATE_NOOP("HotkeyManager", "Ignore Hotkey"),
       QT_TRANSLATE_NOOP("HotkeyManager", "This key combo is never sent to the host and is left for the client PC to process, "
                                          "even when capturing system keyboard shortcuts. Useful for local push-to-talk keys, "
-                                         "AutoHotkey scripts, and similar client-side tools. Unbound by default."),
+                                         "AutoHotkey scripts, and similar client-side tools. Unbound by default. "
+                                         "The Win key cannot be used as a modifier for this combo."),
       0, 0 },
 };
 
@@ -112,6 +113,26 @@ QString HotkeyManager::getActionDescription(int action)
         return QString();
     }
     return tr(k_Actions[action].description);
+}
+
+bool HotkeyManager::isActionSupported(int action)
+{
+    if (action < 0 || action >= ActionCount) {
+        return false;
+    }
+
+    // The Ignore Hotkey needs a low-level keyboard hook to hold its combo
+    // back from the client OS's system-key capture; that only exists on
+    // Windows. Everywhere else the action would be inert, so hide it.
+    if (action == ActionIgnore) {
+#if defined(Q_OS_WIN)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    return true;
 }
 
 QString HotkeyManager::getDisplayString(int action)
@@ -291,6 +312,73 @@ int HotkeyManager::qtKeyToSdlKeycode(int qtKey, int qtModifiers)
     return SDLK_UNKNOWN;
 }
 
+#if defined(Q_OS_WIN)
+int HotkeyManager::qtKeyToWindowsVk(int qtKey, int qtModifiers)
+{
+    bool keypad = (qtModifiers & Qt::KeypadModifier) != 0;
+
+    qtKey = normalizeQtKey(qtKey, keypad);
+
+    // Letters and digits share their values between Qt keys and Windows VKs
+    if (qtKey >= Qt::Key_A && qtKey <= Qt::Key_Z) {
+        return qtKey;
+    }
+    if (qtKey >= Qt::Key_0 && qtKey <= Qt::Key_9) {
+        return keypad ? (0x60 + (qtKey - Qt::Key_0)) : qtKey;
+    }
+
+    if (keypad) {
+        switch (qtKey) {
+        case Qt::Key_Asterisk: return 0x6A; // VK_MULTIPLY
+        case Qt::Key_Plus:     return 0x6B; // VK_ADD
+        case Qt::Key_Minus:    return 0x6D; // VK_SUBTRACT
+        case Qt::Key_Period:   return 0x6E; // VK_DECIMAL
+        case Qt::Key_Slash:    return 0x6F; // VK_DIVIDE
+        default:
+            break;
+        }
+    }
+
+    if (qtKey >= Qt::Key_F1 && qtKey <= Qt::Key_F24) {
+        return 0x70 + (qtKey - Qt::Key_F1); // VK_F1..VK_F24
+    }
+
+    switch (qtKey) {
+    case Qt::Key_Backspace:    return 0x08;
+    case Qt::Key_Tab:          return 0x09;
+    case Qt::Key_Clear:        return 0x0C;
+    case Qt::Key_Escape:       return 0x1B;
+    case Qt::Key_Space:        return 0x20;
+    case Qt::Key_PageUp:       return 0x21;
+    case Qt::Key_PageDown:     return 0x22;
+    case Qt::Key_End:          return 0x23;
+    case Qt::Key_Home:         return 0x24;
+    case Qt::Key_Left:         return 0x25;
+    case Qt::Key_Up:           return 0x26;
+    case Qt::Key_Right:        return 0x27;
+    case Qt::Key_Down:         return 0x28;
+    case Qt::Key_Print:        return 0x2C;
+    case Qt::Key_Insert:       return 0x2D;
+    case Qt::Key_Delete:       return 0x2E;
+    case Qt::Key_Menu:         return 0x5D;
+    case Qt::Key_NumLock:      return 0x90;
+    case Qt::Key_ScrollLock:   return 0x91;
+    case Qt::Key_Semicolon:    return 0xBA;
+    case Qt::Key_Equal:        return 0xBB;
+    case Qt::Key_Comma:        return 0xBC;
+    case Qt::Key_Minus:        return 0xBD;
+    case Qt::Key_Period:       return 0xBE;
+    case Qt::Key_Slash:        return 0xBF;
+    case Qt::Key_QuoteLeft:    return 0xC0;
+    case Qt::Key_BracketLeft:  return 0xDB;
+    case Qt::Key_Backslash:    return 0xDC;
+    case Qt::Key_BracketRight: return 0xDD;
+    case Qt::Key_Apostrophe:   return 0xDE;
+    default:                   return 0;
+    }
+}
+#endif
+
 int HotkeyManager::sdlKeycodeToDefaultScancode(int sdlKey)
 {
     // Non-printable SDL keycodes directly encode their scancode
@@ -430,6 +518,17 @@ void HotkeyManager::setHotkey(int action, int qtModifiers, int qtKey)
     if (action < 0 || action >= ActionCount || qtKey == 0) {
         return;
     }
+
+#if defined(Q_OS_WIN)
+    // The Ignore Hotkey cannot use the Win key as a modifier. Our keyboard
+    // hook has to swallow that key to keep the client OS from acting on it,
+    // so it cannot also hand it to the combo, and letting one be bound would
+    // silently break every other Win shortcut. Reject it rather than storing
+    // a combo that cannot work.
+    if (action == ActionIgnore && (qtModifiers & Qt::MetaModifier)) {
+        return;
+    }
+#endif
 
     // Store the canonical (unshifted) key so conflict detection and
     // display are consistent regardless of how the key arrived from Qt

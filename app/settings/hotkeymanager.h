@@ -53,6 +53,12 @@ public:
     // Translated description for an action (used for tooltips)
     Q_INVOKABLE QString getActionDescription(int action);
 
+    // Whether an action is functional on the current platform. The Ignore
+    // Hotkey depends on a platform-specific keyboard hook that only exists
+    // on Windows, so it is reported unsupported (and hidden in Settings)
+    // elsewhere. All other actions are supported everywhere.
+    Q_INVOKABLE bool isActionSupported(int action);
+
     // Display string of the action's current binding ("" if unbound)
     Q_INVOKABLE QString getDisplayString(int action);
 
@@ -97,6 +103,13 @@ public:
     // Converts a Qt key code to an SDL keycode (SDLK_UNKNOWN if unmappable).
     // The Qt modifier mask is consulted for Qt::KeypadModifier only.
     static int qtKeyToSdlKeycode(int qtKey, int qtModifiers);
+
+#if defined(Q_OS_WIN)
+    // Converts a Qt key code to a Windows virtual-key code (0 if unmappable).
+    // Used to give the Win32 keyboard hook the Ignore Hotkey's final key in
+    // the same terms the hook receives keystrokes in.
+    static int qtKeyToWindowsVk(int qtKey, int qtModifiers);
+#endif
 
     // Returns the standard US QWERTY scancode for an SDL keycode
     // (SDL_SCANCODE_UNKNOWN if there is no fixed position). Used as a

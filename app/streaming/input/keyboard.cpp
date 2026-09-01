@@ -1,6 +1,7 @@
 #include "streaming/session.h"
 
 #include "settings/hotkeymanager.h"
+#include "keyboardhook_win32.h"
 
 #include <Limelight.h>
 #include "SDL_compat.h"
@@ -175,6 +176,102 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         Q_UNREACHABLE();
     }
 }
+
+#ifdef Q_OS_WIN
+// True for the Windows virtual-key codes of the modifier keys themselves,
+// which must not trigger the re-assert logic below on their own press.
+static bool isModifierKeyCode(short keyCode)
+{
+    switch (keyCode) {
+    case 0xA0: // VK_LSHIFT
+    case 0xA1: // VK_RSHIFT
+    case 0xA2: // VK_LCONTROL
+    case 0xA3: // VK_RCONTROL
+    case 0xA4: // VK_LMENU
+    case 0xA5: // VK_RMENU
+    case 0x5B: // VK_LWIN
+    case 0x5C: // VK_RWIN
+        return true;
+    default:
+        return false;
+    }
+}
+#endif
+
+#ifdef Q_OS_WIN
+// Keeps the modifier state the host believes in agreement with the keys the
+// user is physically holding.
+//
+// Two things pull them apart. Losing focus raises every key on the host (see
+// raiseAllKeys()), but a modifier that was never physically released will
+// never generate another key down event, so the host keeps believing it is
+// up. And once SDL's own keyboard state has been reset by that focus change,
+// SDL discards the eventual release as redundant, so the host never learns
+// about it either and the modifier stays stuck down instead.
+//
+// The Ignore Hotkey makes both easy to hit, since switching the client to
+// another desktop and back while still holding the combo's modifiers is
+// exactly this situation. Ask the OS what is really held rather than SDL,
+// whose state is not restored after a focus change.
+//
+// modifierFlags, when given, is updated to match so the key being forwarded
+// carries the right modifiers.
+void SdlInputHandler::syncHeldModifiers(char* modifierFlags)
+{
+    // SDL's keyboard grab swallows the modifier keys themselves before they
+    // reach the OS, so while it is the thing capturing, the OS would report
+    // every modifier as up no matter what the user is holding. Syncing
+    // against that would release modifiers out from under the host. Our own
+    // hook deliberately passes them through, so its state is trustworthy.
+    if (!m_UsingCustomKeyboardHook && isSystemKeyCaptureActive()) {
+        return;
+    }
+
+    // Only the modifiers that reach the OS normally can be checked this way.
+    // The Win key is deliberately swallowed while we are capturing system
+    // keys (by our hook, or by SDL's grab when no Ignore Hotkey is bound),
+    // so the OS never sees it go down and would always report it as up.
+    // Its state is tracked through the normal key event path instead.
+    static const struct {
+        int vkCode;
+        short keyCode;
+        char modifierFlag;
+    } k_Modifiers[] = {
+        { 0xA2, 0xA2, MODIFIER_CTRL  }, // VK_LCONTROL
+        { 0xA3, 0xA3, MODIFIER_CTRL  }, // VK_RCONTROL
+        { 0xA0, 0xA0, MODIFIER_SHIFT }, // VK_LSHIFT
+        { 0xA1, 0xA1, MODIFIER_SHIFT }, // VK_RSHIFT
+        { 0xA4, 0xA4, MODIFIER_ALT   }, // VK_LMENU
+        { 0xA5, 0xA5, MODIFIER_ALT   }, // VK_RMENU
+    };
+
+    for (auto& modifier : k_Modifiers) {
+        bool physicallyDown = Win32KeyboardHook::isKeyPhysicallyDown(modifier.vkCode);
+        bool hostThinksDown = m_KeysDown.contains(modifier.keyCode);
+
+        if (physicallyDown && modifierFlags != nullptr) {
+            *modifierFlags |= modifier.modifierFlag;
+        }
+
+        if (physicallyDown == hostThinksDown) {
+            continue;
+        }
+
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Syncing modifier 0x%x to %s",
+                    modifier.keyCode, physicallyDown ? "down" : "up");
+
+        if (physicallyDown) {
+            m_KeysDown.insert(modifier.keyCode);
+            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_DOWN, 0);
+        }
+        else {
+            m_KeysDown.remove(modifier.keyCode);
+            LiSendKeyboardEvent(0x8000 | modifier.keyCode, KEY_ACTION_UP, 0);
+        }
+    }
+}
+#endif
 
 void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 {
@@ -358,6 +455,13 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 keyCode = 0x2B;
                 break;
             case SDL_SCANCODE_PRINTSCREEN:
+                // The client OS always acts on this key itself, so forwarding
+                // it as well would take a screenshot on both machines. Only
+                // send it when we are capturing system keys, which is the same
+                // rule the Win key below follows.
+                if (!isSystemKeyCaptureActive()) {
+                    return;
+                }
                 keyCode = 0x2C;
                 break;
             case SDL_SCANCODE_INSERT:
@@ -510,6 +614,12 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 return;
         }
     }
+
+#ifdef Q_OS_WIN
+    if (!isModifierKeyCode(keyCode)) {
+        syncHeldModifiers(&modifiers);
+    }
+#endif
 
     // Track the key state so we always know which keys are down
     if (event->state == SDL_PRESSED) {

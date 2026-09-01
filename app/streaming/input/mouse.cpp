@@ -8,6 +8,11 @@ void SdlInputHandler::handleMouseButtonEvent(SDL_MouseButtonEvent* event)
 {
     int button;
 
+#ifdef Q_OS_WIN
+    // Clicks must not carry modifiers the user has already released (nor
+    // miss ones they are still holding) after a focus change
+    syncHeldModifiers(nullptr);
+#endif
     if (event->which == SDL_TOUCH_MOUSEID) {
         // Ignore synthetic mouse events
         return;

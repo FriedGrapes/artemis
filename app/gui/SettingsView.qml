@@ -1644,6 +1644,13 @@ Flickable {
                         width: parent.width
                         spacing: 10
 
+                        // Hide actions that aren't functional on this platform
+                        // (e.g. the Ignore Hotkey off Windows) by collapsing
+                        // the row so it takes no space.
+                        property bool actionSupported: HotkeyManager.isActionSupported(index)
+                        visible: actionSupported
+                        height: actionSupported ? implicitHeight : 0
+
                         Label {
                             id: hotkeyActionLabel
                             anchors.verticalCenter: parent.verticalCenter

@@ -138,6 +138,7 @@ public:
 
     void notifyFocusLost();
 
+
     bool isCaptureActive();
 
     bool isSystemKeyCaptureActive();
@@ -187,6 +188,10 @@ private:
 
     void performSpecialKeyCombo(KeyCombo combo);
 
+#ifdef Q_OS_WIN
+    void syncHeldModifiers(char* modifierFlags);
+#endif
+
     static
     Uint32 longPressTimerCallback(Uint32 interval, void* param);
 
@@ -223,6 +228,16 @@ private:
     QStringList m_IgnoreDeviceGuids;
     StreamingPreferences::CaptureSysKeysMode m_CaptureSystemKeysMode;
     int m_MouseCursorCapturedVisibilityState;
+
+#ifdef Q_OS_WIN
+    // The bound Ignore Hotkey in Windows terms, and whether we replaced
+    // SDL's keyboard grab with our own hook to honor it. Both are zero
+    // when no Ignore Hotkey is bound, in which case SDL's grab is used
+    // exactly as before.
+    int m_IgnoreHotkeyVkCode;
+    int m_IgnoreHotkeyModMask;
+    bool m_UsingCustomKeyboardHook;
+#endif
 
     struct {
         KeyCombo keyCombo;

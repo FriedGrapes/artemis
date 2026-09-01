@@ -2,6 +2,7 @@
 #include "SDL_compat.h"
 #include "streaming/session.h"
 #include "settings/hotkeymanager.h"
+#include "keyboardhook_win32.h"
 #include "settings/mappingmanager.h"
 #include "path.h"
 #include "utils.h"
@@ -97,6 +98,31 @@ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, i
         m_SpecialKeyCombos[KeyComboToggleFullScreen].enabled = false;
         m_SpecialKeyCombos[KeyComboToggleMinimize].enabled = false;
     }
+
+#ifdef Q_OS_WIN
+    // Resolve the Ignore Hotkey into the Windows terms our keyboard hook
+    // works in. When it's bound, updateKeyboardGrabState() uses our hook
+    // in place of SDL's keyboard grab so the combo can reach client-side
+    // software; when it isn't, SDL's grab is used exactly as before.
+    m_IgnoreHotkeyVkCode = 0;
+    m_IgnoreHotkeyModMask = 0;
+    m_UsingCustomKeyboardHook = false;
+    {
+        int qtMods, qtKey;
+        if (HotkeyManager::getBinding(HotkeyManager::ActionIgnore, qtMods, qtKey)) {
+            int vkCode = HotkeyManager::qtKeyToWindowsVk(qtKey, qtMods);
+            int modMask = HotkeyManager::qtModsToHotkeyModMask(qtMods);
+            // A combo using the Win key cannot work: the hook must swallow
+            // that key to keep the client OS out of it. setHotkey() refuses
+            // to store one, but an older saved binding may still have it.
+            if (vkCode != 0 && modMask != 0 &&
+                    !(modMask & HotkeyManager::HkModGui)) {
+                m_IgnoreHotkeyVkCode = vkCode;
+                m_IgnoreHotkeyModMask = modMask;
+            }
+        }
+    }
+#endif
 
     m_OldIgnoreDevices = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES);
     m_OldIgnoreDevicesExcept = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT);
@@ -196,6 +222,12 @@ SdlInputHandler::~SdlInputHandler()
         }
     }
 
+#ifdef Q_OS_WIN
+    // Make sure our keyboard hook never outlives the session
+    Win32KeyboardHook::uninstall();
+    m_UsingCustomKeyboardHook = false;
+#endif
+
     SDL_RemoveTimer(m_LongPressTimer);
     SDL_RemoveTimer(m_LeftButtonReleaseTimer);
     SDL_RemoveTimer(m_RightButtonReleaseTimer);
@@ -288,6 +320,13 @@ void SdlInputHandler::notifyFocusLost()
     // Raise all keys that are currently pressed. If we don't do this, certain keys
     // used in shortcuts that cause focus loss (such as Alt+Tab) may get stuck down.
     raiseAllKeys();
+
+#ifdef Q_OS_WIN
+    // A key we swallow may be held right now (locking the workstation with
+    // Win+L is the common case) and we will never see its release, so forget
+    // it rather than letting the stale state wedge later input.
+    Win32KeyboardHook::resetKeyState();
+#endif
 }
 
 bool SdlInputHandler::isCaptureActive()
@@ -314,6 +353,33 @@ void SdlInputHandler::updateKeyboardGrabState()
         shouldGrab = false;
     }
 
+#ifdef Q_OS_WIN
+    // With an Ignore Hotkey bound, use our own keyboard hook rather than
+    // SDL's grab. SDL's grab swallows the keys it intercepts system-wide,
+    // which prevents client-side software from ever seeing the combo; our
+    // hook makes that decision per keystroke instead.
+    if (m_IgnoreHotkeyVkCode != 0) {
+        if (shouldGrab) {
+            if (Win32KeyboardHook::install(m_Window, m_IgnoreHotkeyModMask, m_IgnoreHotkeyVkCode)) {
+                m_UsingCustomKeyboardHook = true;
+
+                // Make sure SDL's grab stays out of the way while ours is up
+                SDL_SetWindowKeyboardGrab(m_Window, SDL_FALSE);
+                SDL_SetHint(SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4, "1");
+                return;
+            }
+
+            // Fall through to SDL's grab if our hook couldn't be installed
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Falling back to SDL keyboard grab; Ignore Hotkey will not work");
+        }
+        else if (m_UsingCustomKeyboardHook) {
+            Win32KeyboardHook::uninstall();
+            m_UsingCustomKeyboardHook = false;
+        }
+    }
+#endif
+
     // Don't close the window on Alt+F4 when keyboard grab is enabled
     SDL_SetHint(SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4, shouldGrab ? "1" : "0");
 
@@ -335,6 +401,26 @@ bool SdlInputHandler::isSystemKeyCaptureActive()
     }
 
     Uint32 windowFlags = SDL_GetWindowFlags(m_Window);
+#ifdef Q_OS_WIN
+    // Our keyboard hook provides system key capture in place of SDL's grab,
+    // so SDL's grab flag is deliberately clear while it is installed. Decide
+    // based on our own state instead, otherwise keys that depend on system
+    // key capture (the Win key and the Meta modifier) would stop reaching
+    // the host.
+    if (m_UsingCustomKeyboardHook) {
+        if (!(windowFlags & SDL_WINDOW_INPUT_FOCUS)) {
+            return false;
+        }
+
+        if (m_CaptureSystemKeysMode == StreamingPreferences::CSK_FULLSCREEN &&
+                !(windowFlags & SDL_WINDOW_FULLSCREEN)) {
+            return false;
+        }
+
+        return true;
+    }
+#endif
+
     if (!(windowFlags & SDL_WINDOW_INPUT_FOCUS)
 #if SDL_VERSION_ATLEAST(2, 0, 15)
             || !(windowFlags & SDL_WINDOW_KEYBOARD_GRABBED)
