@@ -1,5 +1,7 @@
 #pragma once
 
+// Compatibility layer for Vibepollo 2.0 synthetic session controls.
+
 #include "nvapp.h"
 
 #include <QVector>
