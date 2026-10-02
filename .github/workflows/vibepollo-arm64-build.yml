@@ -1,0 +1,85 @@
+name: Vibepollo 2.0 ARM64 Build
+
+on:
+  push:
+    branches:
+      - 'fix/vibepollo2-sessionfix-arm64'
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.8.3'
+  BUILD_VERSION: '0.6.7-vibepollo2-sessionfix-arm64'
+
+jobs:
+  build-windows-arm64-portable:
+    name: Windows ARM64 Portable Build
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+        fetch-depth: 0
+
+    - name: Setup Qt Desktop
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2022_64'
+        modules: 'qtmultimedia'
+
+    - name: Setup Qt for ARM64
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2022_arm64_cross_compiled'
+        set-env: false
+
+    - name: Setup MSVC for ARM64
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: amd64_arm64
+
+    - name: Set build version
+      shell: pwsh
+      run: |
+        "0.6.7.0" | Out-File -Encoding ascii app\version.txt
+
+    - name: Build ARM64 portable package
+      shell: pwsh
+      run: |
+        $qtArm64Path = "D:\a\artemis\Qt\6.8.3\msvc2022_arm64"
+        if (-not (Test-Path $qtArm64Path)) {
+          Write-Error "Qt ARM64 not found at $qtArm64Path"
+          Get-ChildItem "D:\a\artemis\Qt\6.8.3" -ErrorAction SilentlyContinue | Select-Object Name
+          exit 1
+        }
+        $env:Qt6_DIR = $qtArm64Path
+        $env:PATH = "$qtArm64Path\bin;$env:PATH"
+        cmd /c "scripts\build-artemis-arch.bat release"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Rename ARM64 portable ZIP
+      shell: pwsh
+      run: |
+        $zipFile = Get-ChildItem -Path "build\installer-arm64-release" -Filter "ArtemisPortable-*.zip" | Select-Object -First 1
+        if (-not $zipFile) {
+          Write-Error "ARM64 Portable ZIP not found"
+          Get-ChildItem -Path "build\installer-arm64-release" -Recurse -ErrorAction SilentlyContinue
+          exit 1
+        }
+        $newZipName = "artemis-windows-arm64-portable-${{ env.BUILD_VERSION }}.zip"
+        Move-Item $zipFile.FullName $newZipName
+
+    - name: Upload ARM64 Portable ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: artemis-windows-arm64-portable-${{ env.BUILD_VERSION }}
+        path: artemis-windows-arm64-portable-${{ env.BUILD_VERSION }}.zip
+        retention-days: 30
+        if-no-files-found: error

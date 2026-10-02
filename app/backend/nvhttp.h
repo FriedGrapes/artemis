@@ -166,6 +166,11 @@ public:
     void
     quitApp();
 
+    // Vibepollo 2.0 exposes Terminate as a synthetic /launch control for
+    // secondary clients whose /serverinfo intentionally reports SERVER_FREE.
+    void
+    terminateVibepolloSession(int appId, QString appUuid);
+
     void
     startApp(QString verb,
              bool isGfe,

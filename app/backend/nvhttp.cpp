@@ -310,6 +310,71 @@ NvHTTP::quitApp()
     }
 }
 
+void
+NvHTTP::terminateVibepolloSession(int appId, QString appUuid)
+{
+    struct ControlResponse
+    {
+        int statusCode = -1;
+        QString statusMessage;
+    };
+
+    auto sendTerminateRequest = [&]() -> ControlResponse {
+        QString params = "appid=" + QString::number(appId);
+        if (!appUuid.isEmpty()) {
+            params += "&appuuid=" + appUuid;
+        }
+        params += "&rikey=00000000000000000000000000000000"
+                  "&rikeyid=0"
+                  "&localAudioPlayMode=0";
+
+        QString response = openConnectionToString(m_BaseUrlHttps,
+                                                  "launch",
+                                                  params,
+                                                  QUIT_TIMEOUT_MS);
+        qInfo() << "Vibepollo Terminate response:" << response;
+
+        QXmlStreamReader xmlReader(response);
+        while (xmlReader.readNextStartElement()) {
+            if (xmlReader.name() == QString("root")) {
+                ControlResponse result;
+                result.statusCode = (int)xmlReader.attributes().value("status_code").toUInt();
+                result.statusMessage = xmlReader.attributes().value("status_message").toString();
+                return result;
+            }
+        }
+
+        throw GfeHttpResponseException(-1, "Malformed XML (missing root element)");
+    };
+
+    auto isConfirmationPrompt = [](const ControlResponse& response) {
+        return response.statusCode == 410 &&
+               (response.statusMessage.contains("Launch Terminate again", Qt::CaseInsensitive) ||
+                response.statusMessage.contains("within 60 seconds", Qt::CaseInsensitive));
+    };
+
+    ControlResponse response = sendTerminateRequest();
+
+    // Secondary clients are guarded by a two-step confirmation by default.
+    // Artemis already presented its own destructive-action confirmation dialog,
+    // so complete Vibepollo's second confirmation automatically.
+    if (isConfirmationPrompt(response)) {
+        response = sendTerminateRequest();
+        if (isConfirmationPrompt(response)) {
+            throw GfeHttpResponseException(409,
+                                           tr("Vibepollo did not accept the session termination confirmation."));
+        }
+    }
+
+    // Vibepollo intentionally reports synthetic-control completion as 410 so
+    // Moonlight-family clients do not wait for a nonexistent RTSP URL.
+    if (response.statusCode == 200 || response.statusCode == 410) {
+        return;
+    }
+
+    throw GfeHttpResponseException(response.statusCode, response.statusMessage);
+}
+
 QVector<NvDisplayMode>
 NvHTTP::getDisplayModeList(QString serverInfo)
 {
@@ -625,8 +690,15 @@ NvHTTP::openConnection(QUrl baseUrl,
     // GFE will puke next time
     m_Nam.clearAccessCache();
 
+    // Vibepollo synthetic controls may intentionally use HTTP 410 while
+    // returning a valid GameStream XML body. Let /launch callers inspect it.
+    const int httpStatusCode =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const bool allowVibepolloControlResponse =
+            (command == "launch" && httpStatusCode == 410);
+
     // Handle error
-    if (reply->error() != QNetworkReply::NoError)
+    if (reply->error() != QNetworkReply::NoError && !allowVibepolloControlResponse)
     {
         if (logLevel >= NvLogLevel::NVLL_ERROR) {
             qWarning() << command << "request failed with error:" << reply->error();

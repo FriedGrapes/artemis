@@ -62,6 +62,8 @@ private:
 
     bool isAppCurrentlyVisible(const NvApp& app);
 
+    int getEffectiveRunningAppId() const;
+
     NvComputer* m_Computer;
     BoxArtManager m_BoxArtManager;
     ComputerManager* m_ComputerManager;

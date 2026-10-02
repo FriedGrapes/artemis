@@ -1,4 +1,5 @@
 #include "computermanager.h"
+#include "vibepollocompat.h"
 #include "boxartmanager.h"
 #include "nvhttp.h"
 #include "nvpairingmanager.h"
@@ -1119,56 +1120,91 @@ class PendingQuitTask : public QObject, public QRunnable
     Q_OBJECT
 
 public:
-    PendingQuitTask(ComputerManager* computerManager, NvComputer* computer)
-        : m_Computer(computer)
+    PendingQuitTask(ComputerManager* computerManager, NvComputer* computer,
+                    bool vibepolloSyntheticTerminate = false, NvApp terminateControl = NvApp())
+        : m_Computer(computer),
+          m_VibepolloSyntheticTerminate(vibepolloSyntheticTerminate),
+          m_TerminateControl(terminateControl)
     {
-        connect(this, &PendingQuitTask::quitAppFailed,
+        connect(this, &PendingQuitTask::quitAppFinished,
                 computerManager, &ComputerManager::quitAppCompleted);
     }
 
 signals:
-    void quitAppFailed(QString error);
+    void quitAppFinished(QVariant error);
 
 private:
+    void clearPendingQuit()
+    {
+        QWriteLocker lock(&m_Computer->lock);
+        m_Computer->pendingQuit = false;
+    }
+
     void run()
     {
         NvHTTP http(m_Computer);
 
         try {
-            if (m_Computer->currentGameId != 0) {
+            if (m_VibepolloSyntheticTerminate) {
+                http.terminateVibepolloSession(m_TerminateControl.id, m_TerminateControl.uuid);
+                // Unlike the legacy /cancel path, currentGameId was already zero
+                // before this request. Completion therefore cannot be detected by
+                // the normal polling transition and must be reported here.
+                emit quitAppFinished(QVariant());
+            }
+            else if (m_Computer->currentGameId != 0) {
                 http.quitApp();
+                // Legacy completion is emitted by the poller when currentGameId
+                // transitions to zero, preserving the existing behavior.
             }
         } catch (const GfeHttpResponseException& e) {
-            {
-                QWriteLocker lock(&m_Computer->lock);
-                m_Computer->pendingQuit = false;
+            if (!m_VibepolloSyntheticTerminate) {
+                clearPendingQuit();
             }
             if (e.getStatusCode() == 599) {
                 // 599 is a special code we make a custom message for
-                emit quitAppFailed(tr("The running game wasn't started by this PC. "
-                                      "You must quit the game on the host PC manually or use the device that originally started the game."));
+                emit quitAppFinished(tr("The running game wasn't started by this PC. "
+                                        "You must quit the game on the host PC manually or use the device that originally started the game."));
             }
             else {
-                emit quitAppFailed(e.toQString());
+                emit quitAppFinished(e.toQString());
             }
         } catch (const QtNetworkReplyException& e) {
-            {
-                QWriteLocker lock(&m_Computer->lock);
-                m_Computer->pendingQuit = false;
+            if (!m_VibepolloSyntheticTerminate) {
+                clearPendingQuit();
             }
-            emit quitAppFailed(e.toQString());
+            emit quitAppFinished(e.toQString());
         }
     }
 
     NvComputer* m_Computer;
+    bool m_VibepolloSyntheticTerminate;
+    NvApp m_TerminateControl;
 };
 
 void ComputerManager::quitRunningApp(NvComputer* computer)
 {
-    QWriteLocker lock(&computer->lock);
-    computer->pendingQuit = true;
+    NvApp terminateControl;
+    bool vibepolloSyntheticTerminate = false;
 
-    PendingQuitTask* quit = new PendingQuitTask(this, computer);
+    {
+        QWriteLocker lock(&computer->lock);
+
+        // Vibepollo 2.0 secondary clients intentionally receive currentGameId=0.
+        // Their app catalogue contains a synthetic Terminate control instead.
+        if (computer->currentGameId == 0 &&
+                VibepolloCompat::findTerminateControl(computer->appList, &terminateControl)) {
+            vibepolloSyntheticTerminate = true;
+        }
+        else {
+            // Preserve the legacy /cancel completion path.
+            computer->pendingQuit = true;
+        }
+    }
+
+    PendingQuitTask* quit = new PendingQuitTask(this, computer,
+                                                vibepolloSyntheticTerminate,
+                                                terminateControl);
     QThreadPool::globalInstance()->start(quit);
 }
 

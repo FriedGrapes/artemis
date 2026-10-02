@@ -1,4 +1,5 @@
 #include "appmodel.h"
+#include "backend/vibepollocompat.h"
 
 AppModel::AppModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -21,17 +22,26 @@ void AppModel::initialize(ComputerManager* computerManager, int computerIndex, b
     updateAppList(m_Computer->appList);
 }
 
+int AppModel::getEffectiveRunningAppId() const
+{
+    return VibepolloCompat::effectiveRunningAppId(m_Computer->currentGameId, m_AllApps);
+}
+
 int AppModel::getRunningAppId()
 {
-    return m_CurrentGameId;
+    return getEffectiveRunningAppId();
 }
 
 QString AppModel::getRunningAppName()
 {
-    if (m_CurrentGameId != 0) {
+    const int runningAppId = getEffectiveRunningAppId();
+    if (runningAppId != 0) {
         for (int i = 0; i < m_AllApps.count(); i++) {
-            if (m_AllApps[i].id == m_CurrentGameId) {
-                return m_AllApps[i].name;
+            if (m_AllApps[i].id == runningAppId) {
+                // Vibepollo uses leading spaces to rank its synthetic running-game
+                // entry first in clients that alphabetize the app catalogue.
+                return VibepolloCompat::isRunningGameControl(m_AllApps[i]) ?
+                           m_AllApps[i].name.trimmed() : m_AllApps[i].name;
             }
         }
     }
@@ -81,7 +91,7 @@ QVariant AppModel::data(const QModelIndex &index, int role) const
     case NameRole:
         return app.name;
     case RunningRole:
-        return m_Computer->currentGameId == app.id;
+        return getEffectiveRunningAppId() == app.id;
     case BoxArtRole:
         // FIXME: const-correctness
         return const_cast<BoxArtManager&>(m_BoxArtManager).loadBoxArt(m_Computer, app);
